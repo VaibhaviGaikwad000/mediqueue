@@ -1,0 +1,22 @@
+const router = require('express').Router();
+const { Appointment, Doctor, Queue } = require('../models');
+const { protect, authorize } = require('../middleware/auth');
+const { asyncHandler, fail, requireFields } = require('../utils/http');
+const { today, dayName, isValidDateString } = require('../utils/date');
+const { allocateToken, emitQueueUpdated } = require('../utils/queue');
+router.post('/', protect, authorize('patient'), asyncHandler(async (req, res) => {
+  requireFields(req.body, ['doctorId', 'date', 'timeSlot']);
+  const date = String(req.body.date); const timeSlot = String(req.body.timeSlot);
+  if (!isValidDateString(date)) throw fail('Date must be a valid YYYY-MM-DD date'); if (date < today()) throw fail('Appointments cannot be booked in the past');
+  if (!/^([01]\d|2[0-3]):(00|30)$/.test(timeSlot) || timeSlot < '09:00' || timeSlot >= '17:00') throw fail('Choose a 30-minute slot from 09:00 to 16:30');
+  const doctor = await Doctor.findById(req.body.doctorId); if (!doctor || !doctor.isActive) throw fail('Doctor is not accepting appointments', 404);
+  const weekday = dayName(date); if (!doctor.availability.includes(weekday)) throw fail(`Doctor is not available on ${weekday}`);
+  if (await Appointment.exists({ patientId: req.user._id, doctorId: doctor._id, date, status: { $in: ['waiting', 'in-progress'] } })) throw fail('You already have an active appointment with this doctor on that date', 409);
+  const tokenNumber = await allocateToken(doctor._id, date);
+  const appointment = await Appointment.create({ patientId: req.user._id, doctorId: doctor._id, date, timeSlot, tokenNumber });
+  await emitQueueUpdated(req.app.get('io'), doctor._id.toString(), date);
+  res.status(201).json(await appointment.populate([{ path: 'doctorId', populate: { path: 'userId', select: 'name' } }, { path: 'patientId', select: 'name' }]));
+}));
+router.get('/my', protect, authorize('patient'), asyncHandler(async (req, res) => res.json(await Appointment.find({ patientId: req.user._id }).sort({ date: -1, tokenNumber: 1 }).populate({ path: 'doctorId', populate: [{ path: 'userId', select: 'name' }, { path: 'departmentId', select: 'name' }] }))));
+router.patch('/:id/cancel', protect, authorize('patient'), asyncHandler(async (req, res) => { const appointment = await Appointment.findOne({ _id: req.params.id, patientId: req.user._id }); if (!appointment) throw fail('Appointment not found', 404); if (!['waiting'].includes(appointment.status)) throw fail('Only waiting appointments can be cancelled', 409); appointment.status = 'cancelled'; await appointment.save(); await emitQueueUpdated(req.app.get('io'), appointment.doctorId.toString(), appointment.date); res.json(appointment); }));
+module.exports = router;
