@@ -2,6 +2,53 @@
 
 MediQueue is a smart hospital queue management system for patients, doctors and hospital administrators. Patients can book appointments and see their live queue position; doctors can call and update patients; administrators can manage care teams, departments and appointment activity.
 
+## 🔗 Live Demo
+
+**Open the app:** https://mediqueue-app-x34z.onrender.com/login
+
+Sign in with any demo account:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Patient | `patient@mediqueue.com` | `Patient@123` |
+| Doctor | `doctor1@mediqueue.com` | `Doctor@123` |
+| Administrator | `admin@mediqueue.com` | `Admin@123` |
+
+> **Note:** The backend runs on Render's free tier and sleeps after 15 minutes without traffic. The first request can take 30-60 seconds to wake it up. Please wait and retry.
+
+**Quick try:** Sign in as the patient and book a token, then open a private window, sign in as `doctor1@mediqueue.com` and press **Call next patient**. The patient's screen updates live.
+
+## ✨ Features
+
+- **Patients:** register, browse departments and doctors, book a token for a date and time slot, track live queue position with estimated wait time, view history and cancel waiting appointments.
+- **Doctors:** view today's queue, call the next patient, mark completed or no-show, set average consultation time and booking availability.
+- **Administrators:** manage doctors and departments, view appointment records with filters, and see a dashboard with today's patients, average wait, no-show rate and a seven-day chart.
+- **Real time:** Socket.io pushes queue updates to patients and doctors without page refresh.
+- **Notifications:** email reminder when three or fewer patients are ahead (console log if SMTP is not configured).
+- **Security:** JWT authentication, bcrypt password hashing, role-based access, Helmet, CORS allow-list and rate limiting.
+
+## 🛠 Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| Frontend | React (Vite), React Router, Axios, socket.io-client |
+| Backend | Node.js, Express, Socket.io |
+| Database | MongoDB Atlas with Mongoose |
+| Auth | JWT + bcrypt |
+| Email | Nodemailer |
+| Hosting | Render (API and static site), MongoDB Atlas |
+
+<!--
+## 📸 Screenshots
+Create a `screenshots` folder, add your images, then remove this comment markers.
+
+![Login](screenshots/login.png)
+![Book Appointment](screenshots/book.png)
+![Live Track](screenshots/track.png)
+![Doctor Panel](screenshots/doctor.png)
+![Admin Dashboard](screenshots/admin.png)
+-->
+
 ## Requirements
 
 - Node.js 18.18+ (Node 20 LTS recommended) and npm
@@ -123,37 +170,66 @@ The frontend reads `VITE_API_URL` from `client/.env`.
 ## Common errors
 
 - **MongoDB connection refused / server selection timeout:** Start your local MongoDB service or set `MONGO_URI` to a reachable Atlas cluster. Confirm the database user/password and network access list.
+- **`querySrv ECONNREFUSED` with Atlas:** Your network or DNS blocks SRV lookups. Switch network (mobile hotspot), set DNS to `8.8.8.8`, or use the non-SRV `mongodb://` connection string from Atlas.
 - **`MONGO_URI is not configured`:** Copy `server/.env.example` to `server/.env` and set the URI.
-- **CORS error in the browser:** Set `CLIENT_URL` to the exact frontend origin (including protocol and port), restart the server, and use the matching frontend URL.
+- **`secretOrPrivateKey must have a value`:** `JWT_SECRET` is missing in `server/.env` (or in Render's environment variables). Add it and restart the server.
+- **`EADDRINUSE` (port already in use):** Another copy of the server is running. Close the old terminal, or set a different `PORT` in `server/.env` and update `VITE_API_URL`.
+- **CORS error in the browser:** Set `CLIENT_URL` to the exact frontend origin (including protocol and port, no trailing slash), restart the server, and use the matching frontend URL.
+- **`Route not found: POST /auth/login` on the deployed site:** `VITE_API_URL` is missing the `/api` suffix. Set it to `https://<your-api>.onrender.com/api` and redeploy the frontend.
 - **Invalid or expired token:** Sign out and sign in again. Tokens last seven days; clear the `mq_token` local-storage entry if necessary.
 - **Email isn't delivered:** Without complete SMTP settings, messages are intentionally logged in the API terminal. For SMTP, configure host, port, username and password.
 - **No doctors appear while booking:** Check that a doctor exists in the selected department and that the doctor is active. Seed the database or add one as an administrator.
-- **Port already in use:** Stop the process using the port or set a different `PORT` in `server/.env`; update `VITE_API_URL` if the API port changes.
+- **Deployed site is slow on first load:** Render's free tier sleeps when idle. Wait 30-60 seconds and retry.
 
 ## Deployment
 
-### MongoDB Atlas
+The live demo uses MongoDB Atlas for the database and Render for both the API (Web Service) and the frontend (Static Site).
+
+### 1. MongoDB Atlas
 
 1. Create an Atlas cluster and database user.
 2. In Network Access, allow the deployment host. For the quick setup described here, add `0.0.0.0/0` (all IPs); use tighter network access controls when your deployment supports them.
-3. Copy the application connection string and set its database name and credentials.
+3. Copy the application connection string and set its database name (`/mediqueue`) and credentials.
+4. Seed the database once from your computer with `npm run seed` (see Local setup). The deployed API then uses the same data.
 
-### Render backend
+### 2. Render backend (Web Service)
 
 1. Push this project to GitHub.
-2. Create a Render Web Service from the repository. Set **Root Directory** to `server`, **Build Command** to `npm install`, and **Start Command** to `npm start`.
-3. Add environment variables: `MONGO_URI` (Atlas connection string), `JWT_SECRET` (long random secret), `CLIENT_URL` (Vercel frontend URL), and `TZ_NAME=Asia/Kolkata`. Add SMTP settings if mail delivery is needed.
-4. Deploy and verify the Render service at `/api/health`. Run `npm run seed` against the deployment database only if you intend to clear and reseed its MediQueue data.
+2. In Render choose **New + → Web Service** and connect the repository.
+3. Set **Root Directory** to `server`, **Build Command** to `npm install`, **Start Command** to `npm start`, and the instance type to **Free**.
+4. Add environment variables: `MONGO_URI` (Atlas connection string), `JWT_SECRET` (long random secret), `CLIENT_URL` (the frontend URL, set after step 3), `TZ_NAME=Asia/Kolkata`, and `NODE_VERSION=20`. Add SMTP settings if mail delivery is needed.
+5. Deploy and verify the service at `https://<your-api>.onrender.com/api/departments`.
 
-### Vercel frontend
+### 3. Render frontend (Static Site)
+
+1. In Render choose **New + → Static Site** and connect the same repository.
+2. Set **Root Directory** to `client`, **Build Command** to `npm install && npm run build`, and **Publish Directory** to `dist`.
+3. Add the environment variable `VITE_API_URL` = `https://<your-api>.onrender.com/api` (ends with `/api`, no trailing slash).
+4. Under **Redirects/Rewrites** add a rule: Source `/*`, Destination `/index.html`, Action **Rewrite**. This prevents 404 errors when a page is refreshed.
+5. Deploy and copy the frontend URL.
+
+### 4. Connect both
+
+Open the backend service, go to **Environment**, set `CLIENT_URL` to the exact frontend URL (for example `https://mediqueue-app-x34z.onrender.com`, no trailing slash), then **Save and deploy**. Without this the browser blocks API requests with a CORS error.
+
+### Alternative: Vercel frontend
 
 1. Import the GitHub repository into Vercel and set **Root Directory** to `client`.
-2. Set `VITE_API_URL` to the Render API URL ending in `/api`, for example `https://your-service.onrender.com/api`.
-3. Deploy. Add the final Vercel URL to Render's `CLIENT_URL`, then redeploy or restart the backend.
+2. Set `VITE_API_URL` to the Render API URL ending in `/api`.
+3. Deploy, then add the final Vercel URL to Render's `CLIENT_URL` and redeploy the backend.
+
+Changes pushed to the `main` branch redeploy automatically on Render:
+
+```powershell
+git add .
+git commit -m "update"
+git push
+```
 
 ## Production checklist
 
 - Use a unique, randomly generated `JWT_SECRET` and strong non-demo account passwords.
+- Rotate the Atlas database password if it was ever shared, and update `MONGO_URI` everywhere it is used.
 - Configure Atlas IP access and SMTP for your deployment environment.
 - Set `CLIENT_URL` to the exact deployed origin(s), with no trailing slash.
 - Do not expose or commit `.env` files.
